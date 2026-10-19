@@ -1,0 +1,4 @@
+# The built front end is generated; keep it out of diffs and language stats, and never rewrite its line endings.
+dist/** -diff -text linguist-generated
+assets/* binary
+docs/*.png binary

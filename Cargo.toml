@@ -1,0 +1,54 @@
+[package]
+name = "mdown"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "A lightweight native Markdown viewer and editor with math, diagrams, charts and 3D models"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/RAZKOM/mdown"
+keywords = ["markdown", "viewer", "editor", "preview", "gui"]
+categories = ["text-editors", "command-line-utilities"]
+include = ["/src/**", "/dist/**", "/assets/**", "/Cargo.toml", "/build.rs", "/README.md", "/LICENSE*"]
+autobins = false
+default-run = "mdown"
+
+# `mdown` is a tiny console launcher (CLI, setup menu); `mdown-app` is the real viewer, built
+# without a console window so double-clicks never flash a terminal.
+[[bin]]
+name = "mdown"
+path = "src/bin/mdown.rs"
+
+[[bin]]
+name = "mdown-app"
+path = "src/main.rs"
+
+# Prebuilt archives for `cargo binstall`, attached to GitHub releases by .github/workflows/release.yml.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/mdown-{ target }-v{ version }.{ archive-format }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
+[features]
+# Developer only: lets MDOWN_DEBUG_JS run scripts in the windows and print the results.
+debug-hooks = []
+
+[dependencies]
+dirs = "7.0.0"
+serde_json = "1.0.154"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[target."cfg(windows)".dependencies]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+
+
