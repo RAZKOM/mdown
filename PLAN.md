@@ -14,6 +14,30 @@ Double-click a `.md` file and it opens in its own small window, fully rendered, 
 - **Viewer by default, with a toggleable editor.**
 - **No single-instance logic.** Multiple files means multiple windows. On Windows each double-click starts its own process with the path as an argument. On macOS, see "Open-file handling".
 
+## Rendering pipeline (all heavy parts lazy-loaded)
+| Feature | Library | Load rule |
+|---|---|---|
+| Markdown core | `markdown-it` + footnote, task-lists, anchor, front-matter | always |
+| Sanitization | `DOMPurify` (raw HTML in markdown is allowed, but sanitized) | always |
+| Code highlighting | `highlight.js` (core + languages on demand) or Shiki | only if code fences exist |
+| Math | `KaTeX` (`$..$`, `$$..$$`) | only if math present |
+| Diagrams | `mermaid` (```` ```mermaid ````) | only if a mermaid block exists |
+| Charts | `Chart.js`, fenced ```` ```chart ```` block with JSON config | only if a chart block exists |
+| 3D | `three` + `GLTFLoader` + `STLLoader` (or `<model-viewer>` for GLB) | only if a model is referenced |
+| Images | native `<img>`, click to zoom | always |
+
+- **3D syntax:** `![alt](part.glb)` or `![alt](part.stl)`. Detect by extension and replace with an interactive viewer (orbit controls, auto-fit camera, lighting).
+- **Chart syntax:** fenced block with language `chart` containing Chart.js JSON. Invalid JSON shows a readable inline error.
+- **Errors:** any single block that fails (bad mermaid, bad chart JSON, missing model) shows an inline error in place and does not break the rest of the page.
+- **Speed rule:** render the markdown core and paint first, then hydrate heavy blocks asynchronously.
+- **Reuse:** the user has a working Markdown-to-PDF tool at https://patriciobunt.com/#/tools/markdown-pdf (source: github.com/PatricioBunt/PatricioBunt.github.io, vanilla JS). Read it first and reuse its CSS and rendering choices where sensible.
+
+### Crate size constraint (check this early)
+crates.io limits a published crate to 10 MB compressed. The embedded frontend (markdown-it, Mermaid, Chart.js, KaTeX with fonts, three.js plus loaders) is several MB combined. **Milestone 1 must include measuring the packaged crate size** (`cargo package --list` and the `.crate` file size). If it is too large:
+1. Minify and gzip-friendly bundle; keep only needed KaTeX fonts (woff2) and highlight.js languages.
+2. Split the heaviest libraries out and fetch them from a CDN on first use, with a clear offline error.
+3. Last resort: ship a minimal crate and have the first run download the heavy assets to a cache folder.
+
 ## Development setup
 - **Windows (dev machine):** Rust via rustup (MSVC toolchain), Visual Studio Build Tools (C++ workload), Node. WebView2 ships with Windows 11 and recent Windows 10.
 - **Mac (test machine over SSH):** Xcode command line tools, Rust, Node. Build over SSH with `cargo build --release`. A GUI app launched from an SSH session needs a logged-in graphical session on the Mac. Launch with `./target/release/mdown file.md`, then test the association with `mdown install` and `open sample.md`.
