@@ -28,3 +28,37 @@ $$
 
 Broken: $\frac{1$ done.
 
+## Mermaid
+
+```mermaid
+flowchart LR
+  A[Start] --> B{Ok?}
+  B -- yes --> C[Done]
+  B -- no --> A
+```
+
+```mermaid
+sequenceDiagram
+  Alice->>Bob: Hello
+  Bob-->>Alice: Hi
+```
+
+```mermaid
+this is not valid mermaid
+```
+
+## Charts
+
+```chart
+{"type":"bar","data":{"labels":["A","B","C"],"datasets":[{"label":"Sales","data":[3,7,4]}]}}
+```
+
+```chart
+{"type":"line","data":{"labels":["x","y","z"],"datasets":[{"label":"Trend","data":[1,3,2]}]}}
+```
+
+```chart
+{ not json }
+```
+
+After everything: this paragraph must still render.
