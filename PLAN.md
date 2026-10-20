@@ -44,6 +44,25 @@ crates.io limits a published crate to 10 MB compressed. The embedded frontend (m
 - **Project layout:** Cargo workspace or single crate with `frontend/` (source + bundle script) and `src/` (Rust). The bundled output is committed or built by a `build.rs`/publish step so that `cargo install` from crates.io works without Node on the user's machine. **The published crate must contain the already-built frontend bundle.**
 - **CI (optional):** GitHub Actions on Windows and macOS runs `cargo build`, `cargo test`, and (on tags) builds prebuilt binaries for `cargo binstall`, attached to a GitHub Release.
 
+## Test checklist (put sample files in a `samples/` folder)
+1. Plain markdown: headings, lists, tables, task lists, footnotes, blockquotes, inline HTML.
+2. Code blocks in several languages.
+3. Math (inline and block).
+4. A mermaid flowchart, a sequence diagram, and one deliberately broken block.
+5. Chart.js bar and line charts, plus one with invalid JSON.
+6. Local images with relative paths, nested folders, spaces in names, and a remote image.
+7. A `.glb` and an `.stl` model (small free samples).
+8. Opening two files gives two separate windows (Windows: two processes; macOS: two windows).
+9. Double-click from Explorer/Finder after `mdown install` works on both OSes.
+10. Live reload on external edit, with scroll position preserved.
+11. Edit toggle, save, dirty-close prompt, and the external-change-while-dirty banner.
+12. PDF export looks right for each of the above, in light theme.
+13. OS dark/light switch updates the view live.
+14. Large file (about 2 MB markdown) scrolls smoothly.
+15. Path traversal: a markdown file referencing `../../something` or an absolute path outside its folder must not be served by the asset protocol.
+16. `cargo install --path .` from a clean checkout works with no Node installed.
+17. Performance: record cold start to first paint on both machines.
+
 ## Milestones
 1. **M1: Shell.** wry/tao window, CLI arg, one window per file, plain markdown render, theming, asset protocol. **Measure packaged crate size.** Verify on both OSes.
 2. **M2: Rich content.** Code, math, mermaid, charts, images, per-block error handling, lazy loading.
