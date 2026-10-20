@@ -38,6 +38,13 @@ crates.io limits a published crate to 10 MB compressed. The embedded frontend (m
 2. Split the heaviest libraries out and fetch them from a CDN on first use, with a clear offline error.
 3. Last resort: ship a minimal crate and have the first run download the heavy assets to a cache folder.
 
+## Editor mode
+- Ctrl/Cmd+E toggles view and edit. Edit mode is a split view: CodeMirror 6 on the left, live preview on the right (or editor-only with a preview toggle).
+- Lazy-load CodeMirror the first time edit mode is entered, so view mode stays fast.
+- Ctrl/Cmd+S saves. Show an unsaved-changes marker in the title and prompt on close if dirty.
+- If the file changes on disk while the buffer is dirty, show a non-blocking banner ("reload / keep mine"). Never overwrite silently.
+- Keep features minimal: markdown highlighting, soft wrap, undo/redo, find. No toolbar.
+
 ## Development setup
 - **Windows (dev machine):** Rust via rustup (MSVC toolchain), Visual Studio Build Tools (C++ workload), Node. WebView2 ships with Windows 11 and recent Windows 10.
 - **Mac (test machine over SSH):** Xcode command line tools, Rust, Node. Build over SSH with `cargo build --release`. A GUI app launched from an SSH session needs a logged-in graphical session on the Mac. Launch with `./target/release/mdown file.md`, then test the association with `mdown install` and `open sample.md`.
