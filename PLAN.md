@@ -45,6 +45,12 @@ crates.io limits a published crate to 10 MB compressed. The embedded frontend (m
 - If the file changes on disk while the buffer is dirty, show a non-blocking banner ("reload / keep mine"). Never overwrite silently.
 - Keep features minimal: markdown highlighting, soft wrap, undo/redo, find. No toolbar.
 
+## PDF export
+- **v1:** a print stylesheet (`@media print`) with sensible page breaks, no UI chrome, light theme forced, and charts/mermaid/3D shown as static output (the 3D viewer should print as a snapshot image). Trigger the webview's print function and let the user choose "Save as PDF."
+- **Risk to verify on macOS:** printing from WKWebView can be unreliable. Test wry's print API first. If it fails on macOS, fall back to a native `createPDF` call.
+- **v2 (optional):** one-click export with a save dialog (WebView2 `PrintToPdf` on Windows, WKWebView `createPDF` on macOS).
+- Shortcut: Ctrl/Cmd+P.
+
 ## Development setup
 - **Windows (dev machine):** Rust via rustup (MSVC toolchain), Visual Studio Build Tools (C++ workload), Node. WebView2 ships with Windows 11 and recent Windows 10.
 - **Mac (test machine over SSH):** Xcode command line tools, Rust, Node. Build over SSH with `cargo build --release`. A GUI app launched from an SSH session needs a logged-in graphical session on the Mac. Launch with `./target/release/mdown file.md`, then test the association with `mdown install` and `open sample.md`.
