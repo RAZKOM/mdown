@@ -14,6 +14,27 @@ Double-click a `.md` file and it opens in its own small window, fully rendered, 
 - **Viewer by default, with a toggleable editor.**
 - **No single-instance logic.** Multiple files means multiple windows. On Windows each double-click starts its own process with the path as an argument. On macOS, see "Open-file handling".
 
+## Architecture
+- **Binaries (built, M4):** two `[[bin]]` targets installed together by `cargo install mdown`.
+  - `mdown` is a tiny console launcher (`src/launcher`). `mdown <files>` hands the files to the GUI binary and returns in ~20 ms; it also hosts `install`/`uninstall` and the setup menu. There is no shorter alias: `md` is deliberately not used because PowerShell's `md` alias and cmd's built-in `md` (both mkdir) shadow any `md.exe` on Windows, and `mdown` is already short.
+  - `mdown-app` is the real viewer, built with `windows_subsystem = "windows"` so a double-click never flashes a console. File associations and the macOS bundle point at it directly. One process hosts any number of windows (internal `.md` links and macOS open-document events open more windows in the same process); Windows double-clicks still start one process each.
+  - `cargo install` cannot prompt (no post-install hook, `build.rs` has no terminal and must not touch the system), so the setup menu appears on the first interactive terminal run (once, remembered in `setup-asked`), or any time via `mdown install`.
+- **CLI:** `mdown <file.md>...` opens each file in its own window. Subcommands: `mdown install` and `mdown uninstall` (see "File association").
+- **Reading and writing files:** Rust reads and writes the file through custom protocol handlers or IPC commands exposed to the page. Keep the surface minimal (read file, write file, resolve asset).
+- **Local assets:** images, models and linked files resolve relative to the .md file's folder. Serve them through a custom protocol registered on the webview (for example `asset://`) that maps to the file's directory and refuses to escape it with `..`. Remote `http(s)` images should work too.
+- **Live reload:** watch the open file with the `notify` crate. On change, re-render and keep the scroll position. Debounce about 100 ms.
+- **Links:** external links open in the default browser (`open` crate). Relative links to other `.md` files open in a new window (spawn a new process). `#anchor` links scroll in place.
+- **Theme (built):** `system` (default, follows the OS), `light` or `dark`. Cycle with Ctrl/Cmd+Shift+L (saved globally and pushed to every open window), set with `mdown theme [system|light|dark]`, or edit `settings.json` (`%APPDATA%\mdown\` on Windows, `~/Library/Application Support/mdown/` on macOS; `{ "theme": "dark" }`). The saved theme is stamped on `<html data-theme>` when the page is served, so there is no flash; the title bar follows via tao's `set_theme`. Mermaid, Chart.js, code highlighting, the editor and the 3D viewer follow it; print is always light.
+- **Settings (built):** `settings.json` holds `theme`, `width` (`normal` | `wide`, the reading column) and `zoom` (0.5 to 3.0, in 0.1 steps). Invalid or missing values fall back to defaults and unknown keys survive a save. The page sends one generic IPC message (`{t:"setting", key, value}`); Rust validates and saves it, then evaluates `__applySettings(settings, changedKey)` in every window (the window that asked also shows a toast). Text size is the webview's native zoom (`WebView::zoom`), with wry's built-in hotkey zoom turned off so the page owns the shortcuts. Theme, width and zoom are stamped on `<html>` at serve time.
+- **Context menu (built):** a right-click menu drawn in the page (same look on both OSes, no extra crates). Top section depends on the target: Copy / Select all in the preview, plus Copy link address on links and Copy code on code blocks; Cut / Copy / Paste / Select all in the editor. Then Edit mode or View mode, Save (enabled while there are unsaved edits), Print / Save as PDF, flyouts for Theme, Text size and Page width, Show in File Explorer / Reveal in Finder, and Copy file path. Mouse presses on the menu are swallowed so the selection survives; arrow keys, Enter and Escape work. WebView2 needs `with_clipboard(true)` or Paste raises a permission prompt.
+- **Shortcuts:** Ctrl/Cmd+E edit, +S save, +P print/PDF, +Shift+L cycle theme, +`+` / +`-` / +0 text size (Ctrl+wheel and trackpad pinch too); Cmd+C/V/X/A/Z/W/Q on macOS come from the menu bar.
+- **Window:** sensible default size, remember last size globally (a small config file), title shows the file name, plus a dirty marker in edit mode.
+
+### Open-file handling
+- **Windows:** the path arrives as a CLI argument. Nothing else is needed.
+- **macOS:** when a `.md` file is double-clicked, LaunchServices launches the app (if not running) or sends the file to the running instance as an "open document" event. It does not start a second process. `tao` should expose this as an event on macOS (verify the exact name and version). Handle it by opening a new window in the same process. Also handle the plain CLI argument path (used when running from a terminal).
+- If the event route proves awkward, the fallback is: on receiving an open-file event, spawn a fresh `mdown <path>` child process and let the receiving process exit if it has no windows.
+
 ## Rendering pipeline (all heavy parts lazy-loaded)
 | Feature | Library | Load rule |
 |---|---|---|
