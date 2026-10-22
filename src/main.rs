@@ -2,6 +2,7 @@
 // file associations point here directly so a double-click never flashes a console window.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod assets;
 mod config;
 mod settings;
 
