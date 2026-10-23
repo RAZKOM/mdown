@@ -5,6 +5,7 @@
 mod assets;
 mod config;
 mod settings;
+mod watch;
 
 
 fn main() {
