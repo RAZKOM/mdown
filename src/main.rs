@@ -202,6 +202,29 @@ fn request_close(viewers: &HashMap<WindowId, Viewer>, proxy: &EventLoopProxy<Ev>
     }
 }
 
+fn close_viewer(viewers: &mut HashMap<WindowId, Viewer>, id: WindowId) {
+    if let Some(v) = viewers.remove(&id) {
+        // A maximized window's size is the screen's, not a size worth restoring.
+        if !v.window.is_maximized() {
+            let s = v.window.inner_size().to_logical::<f64>(v.window.scale_factor());
+            config::save_size(s.width, s.height);
+        }
+    }
+}
+
+fn open_path(
+    target: &EventLoopWindowTarget<Ev>,
+    proxy: &EventLoopProxy<Ev>,
+    context: &mut WebContext,
+    viewers: &mut HashMap<WindowId, Viewer>,
+    path: PathBuf,
+) {
+    let Ok(file) = std::fs::canonicalize(path) else { return };
+    if let Some(v) = open_viewer(target, proxy, context, strip_verbatim(file)) {
+        viewers.insert(v.window.id(), v);
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct Msg {
     t: String,
