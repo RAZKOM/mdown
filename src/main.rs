@@ -13,9 +13,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use tao::event_loop::EventLoopProxy;
-use tao::window::{Window, WindowId};
-use wry::WebView;
+use tao::dpi::LogicalSize;
+use tao::event_loop::{EventLoopProxy, EventLoopWindowTarget};
+use tao::window::{Window, WindowBuilder, WindowId};
+use wry::{WebContext, WebView, WebViewBuilder};
 
 #[cfg(windows)]
 const ORIGIN: &str = "http://mdown.localhost";
@@ -119,6 +120,59 @@ struct Ipc {
     proxy: EventLoopProxy<Ev>,
 }
 
+fn open_viewer(
+    target: &EventLoopWindowTarget<Ev>,
+    proxy: &EventLoopProxy<Ev>,
+    context: &mut WebContext,
+    file: PathBuf,
+) -> Option<Viewer> {
+    let base = file.parent()?.to_path_buf();
+    let name = file.file_name()?.to_string_lossy().into_owned();
+    let (w, h) = config::load_size();
+    let prefs = settings::load();
+    let window = WindowBuilder::new()
+        .with_title(&name)
+        .with_inner_size(LogicalSize::new(w, h))
+        .with_theme(window_theme(&prefs.theme))
+        .with_window_icon(window_icon())
+        .build(target)
+        .map_err(|e| eprintln!("mdown: window: {e}"))
+        .ok()?;
+    let id = window.id();
+    #[cfg(feature = "debug-hooks")]
+    mark("window created");
+
+    let doc = file.clone();
+    let doc_base = base.clone();
+    let ipc = Ipc { id, file: file.clone(), base, proxy: proxy.clone() };
+    let builder = WebViewBuilder::new_with_web_context(context);
+    #[cfg(feature = "debug-hooks")]
+    let builder = builder.with_initialization_script(TIMING_SCRIPT);
+    let webview = builder
+        .with_custom_protocol("mdown".into(), move |_, req| assets::respond(&doc, &doc_base, req))
+        .with_ipc_handler(move |req| handle_ipc(&ipc, req.body()))
+        // The page owns Ctrl/Cmd +, -, 0 and Ctrl+wheel so the level is a saved setting.
+        .with_background_color(page_background(&prefs.theme, &window))
+        .with_hotkeys_zoom(false)
+        // The menu's Paste reads the clipboard; this stops WebView2 asking permission for it.
+        .with_clipboard(true)
+        .with_url(format!("{ORIGIN}/index.html"))
+        .build(&window)
+        .map_err(|e| eprintln!("mdown: webview: {e}"))
+        .ok()?;
+    #[cfg(feature = "debug-hooks")]
+    mark("webview created");
+    if prefs.zoom != 1.0 {
+        let _ = webview.zoom(prefs.zoom);
+    }
+
+    let watch_proxy = proxy.clone();
+    let _watcher = watch::watch(&file, move || {
+        let _ = watch_proxy.send_event(Ev::Reload(id));
+    });
+    Some(Viewer { window, webview, name, dirty: false, _watcher })
+}
+
 fn eval(viewers: &HashMap<WindowId, Viewer>, id: WindowId, js: &str) {
     if let Some(v) = viewers.get(&id) {
         let _ = v.webview.evaluate_script(js);
@@ -156,6 +210,45 @@ struct Msg {
     v: Option<bool>,
     key: Option<String>,
     value: Option<serde_json::Value>,
+}
+
+fn handle_ipc(ipc: &Ipc, body: &str) {
+    let Ok(msg) = serde_json::from_str::<Msg>(body) else { return };
+    let send = |ev| {
+        let _ = ipc.proxy.send_event(ev);
+    };
+    match msg.t.as_str() {
+        "link" => {
+            if let Some(href) = msg.href {
+                open_link(&ipc.base, &ipc.proxy, &href);
+            }
+        }
+        "save" => {
+            let Some(text) = msg.text else { return };
+            let js = match std::fs::write(&ipc.file, text) {
+                Ok(()) => "window.__saved && window.__saved()".to_string(),
+                Err(e) => {
+                    let reason = serde_json::to_string(&e.to_string()).unwrap_or_else(|_| "\"error\"".into());
+                    format!("window.__saveFailed && window.__saveFailed({reason})")
+                }
+            };
+            send(Ev::Eval(ipc.id, js));
+        }
+        "dirty" => send(Ev::Dirty(ipc.id, msg.v.unwrap_or(false))),
+        "print" => send(Ev::Print(ipc.id)),
+        "close" => send(Ev::Close(ipc.id)),
+        "setting" => {
+            let (Some(key), Some(value)) = (msg.key, msg.value) else { return };
+            match settings::set(&key, &value) {
+                Ok(()) => send(Ev::Settings(ipc.id, key)),
+                Err(e) => eprintln!("mdown: setting {key}: {e}"),
+            }
+        }
+        "reveal" => reveal(&ipc.file),
+        #[cfg(feature = "debug-hooks")]
+        "timing" => mark(&msg.text.unwrap_or_default()),
+        _ => {}
+    }
 }
 
 /// Shows the file selected in the system file manager.
