@@ -11,10 +11,11 @@ mod watch;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tao::dpi::LogicalSize;
-use tao::event_loop::{EventLoopProxy, EventLoopWindowTarget};
+use tao::event::{Event, WindowEvent};
+use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use tao::window::{Window, WindowBuilder, WindowId};
 use wry::{WebContext, WebView, WebViewBuilder};
 
@@ -78,6 +79,19 @@ const TIMING_SCRIPT: &str = r##"(() => {
   });
   watch.observe(document, { childList: true, subtree: true });
 })();"##;
+
+fn main() {
+    #[cfg(feature = "debug-hooks")]
+    let _ = START.set(Instant::now());
+    // LaunchServices may append `-psn_...`; real paths never start with a dash.
+    let files: Vec<PathBuf> = std::env::args()
+        .skip(1)
+        .filter(|a| !a.starts_with('-'))
+        .filter_map(|a| std::fs::canonicalize(a).ok())
+        .map(strip_verbatim)
+        .collect();
+    run(files);
+}
 
 /// Windows canonicalize yields `\\?\C:\...`, which looks ugly and trips up child processes.
 fn strip_verbatim(p: PathBuf) -> PathBuf {
@@ -171,6 +185,122 @@ fn open_viewer(
         let _ = watch_proxy.send_event(Ev::Reload(id));
     });
     Some(Viewer { window, webview, name, dirty: false, _watcher })
+}
+
+fn run(files: Vec<PathBuf>) {
+    let event_loop: EventLoop<Ev> = EventLoopBuilder::with_user_event().build();
+    let proxy = event_loop.create_proxy();
+    // Keep the webview profile out of the install directory (~/.cargo/bin for `cargo install`).
+    let mut context = WebContext::new(config::webview_dir());
+
+    #[cfg(target_os = "macos")]
+    let _menu = menu::install(proxy.clone());
+
+    let mut viewers: HashMap<WindowId, Viewer> = HashMap::new();
+    for file in files {
+        if let Some(v) = open_viewer(&event_loop, &proxy, &mut context, file) {
+            viewers.insert(v.window.id(), v);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    let mut focused: Option<WindowId> = None; // target of Cmd+W
+
+    // macOS launches the app with no arguments and delivers the double-clicked file as an
+    // "open document" event just after startup, so an empty app waits briefly for one.
+    let mut grace = (viewers.is_empty() && cfg!(target_os = "macos")).then(|| Instant::now() + Duration::from_secs(2));
+
+    // Dev aid, only in builds with `--features debug-hooks`: MDOWN_DEBUG_JS="<expr>[@@<expr>...]"
+    // runs each expression in the page (the first after 6 s, then one every 3 s) and prints its
+    // value to stderr. Platform webviews can't be attached to over SSH, so this is how a headless
+    // Mac gets inspected and driven.
+    #[cfg(feature = "debug-hooks")]
+    if let Ok(exprs) = std::env::var("MDOWN_DEBUG_JS") {
+        let debug_proxy = proxy.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(3));
+            for expr in exprs.split("@@") {
+                std::thread::sleep(Duration::from_secs(3));
+                let _ = debug_proxy.send_event(Ev::Debug(expr.to_string()));
+            }
+        });
+    }
+
+    event_loop.run(move |event, target, flow| {
+        match event {
+            Event::UserEvent(Ev::Reload(id)) => eval(&viewers, id, "window.__reload && window.__reload()"),
+            Event::UserEvent(Ev::Eval(id, js)) => eval(&viewers, id, &js),
+            Event::UserEvent(Ev::Settings(origin, key)) => {
+                let prefs = settings::load();
+                let json = serde_json::json!({ "theme": prefs.theme, "width": prefs.width, "zoom": prefs.zoom });
+                for (id, v) in &viewers {
+                    v.window.set_theme(window_theme(&prefs.theme));
+                    let _ = v.webview.set_background_color(page_background(&prefs.theme, &v.window));
+                    let _ = v.webview.zoom(prefs.zoom);
+                    // The page restyles itself; only the window that asked announces the change.
+                    let changed = if *id == origin { serde_json::Value::from(key.as_str()) } else { serde_json::Value::Null };
+                    let _ = v.webview.evaluate_script(&format!("window.__applySettings && window.__applySettings({json}, {changed})"));
+                }
+            }
+            Event::UserEvent(Ev::Open(path)) => open_path(target, &proxy, &mut context, &mut viewers, path),
+            Event::UserEvent(Ev::Dirty(id, dirty)) => {
+                if let Some(v) = viewers.get_mut(&id) {
+                    v.dirty = dirty;
+                    v.window.set_title(&if dirty { format!("● {}", v.name) } else { v.name.clone() });
+                }
+            }
+            Event::UserEvent(Ev::Print(id)) => {
+                if let Some(v) = viewers.get(&id) {
+                    let _ = v.webview.print();
+                }
+            }
+            Event::UserEvent(Ev::Close(id)) => close_viewer(&mut viewers, id),
+            #[cfg(feature = "debug-hooks")]
+            Event::UserEvent(Ev::Debug(expr)) => {
+                for v in viewers.values() {
+                    let _ = v.webview.evaluate_script_with_callback(&expr, |r| eprintln!("debug: {r}"));
+                }
+            }
+            #[cfg(target_os = "macos")]
+            Event::UserEvent(Ev::Menu(action)) => match action {
+                menu::Action::CloseWindow => {
+                    if let Some(id) = focused.filter(|id| viewers.contains_key(id)) {
+                        request_close(&viewers, &proxy, id);
+                    }
+                }
+                menu::Action::QuitAll => {
+                    // Windows with unsaved edits ask first; the rest simply close.
+                    let ids: Vec<_> = viewers.keys().copied().collect();
+                    for id in ids {
+                        request_close(&viewers, &proxy, id);
+                    }
+                }
+            },
+            #[cfg(target_os = "macos")]
+            Event::Opened { urls } => {
+                for url in urls {
+                    if let Ok(path) = url.to_file_path() {
+                        open_path(target, &proxy, &mut context, &mut viewers, path);
+                    }
+                }
+            }
+            Event::WindowEvent { window_id, event: WindowEvent::CloseRequested, .. } => {
+                request_close(&viewers, &proxy, window_id);
+            }
+            #[cfg(target_os = "macos")]
+            Event::WindowEvent { window_id, event: WindowEvent::Focused(true), .. } => focused = Some(window_id),
+            _ => {}
+        }
+
+        if !viewers.is_empty() {
+            grace = None;
+            *flow = ControlFlow::Wait;
+        } else {
+            match grace {
+                Some(deadline) if Instant::now() < deadline => *flow = ControlFlow::WaitUntil(deadline),
+                _ => *flow = ControlFlow::Exit,
+            }
+        }
+    });
 }
 
 fn eval(viewers: &HashMap<WindowId, Viewer>, id: WindowId, js: &str) {
@@ -305,8 +435,4 @@ fn open_link(base: &Path, proxy: &EventLoopProxy<Ev>, href: &str) {
             let _ = proxy.send_event(Ev::Open(target));
         }
     }
-}
-
-fn main() {
-    println!("Hello, world!");
 }
