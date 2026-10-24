@@ -1191,6 +1191,7 @@ dependencies = [
 name = "mdown"
 version = "0.1.0"
 dependencies = [
+ "core-foundation",
  "dirs",
  "mime_guess",
  "muda",

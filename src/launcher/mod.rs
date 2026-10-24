@@ -11,6 +11,12 @@ mod settings;
 #[cfg(windows)]
 #[path = "windows.rs"]
 mod platform;
+#[cfg(target_os = "macos")]
+#[path = "macos.rs"]
+mod platform;
+#[cfg(not(any(windows, target_os = "macos")))]
+#[path = "other.rs"]
+mod platform;
 
 /// What `install` should set up. They are independent: a user can want the right-click entry
 /// without mdown taking over double-click, or the reverse.
