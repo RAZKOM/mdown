@@ -35,6 +35,16 @@ Double-click a `.md` file and it opens in its own small window, fully rendered, 
 - **macOS:** when a `.md` file is double-clicked, LaunchServices launches the app (if not running) or sends the file to the running instance as an "open document" event. It does not start a second process. `tao` should expose this as an event on macOS (verify the exact name and version). Handle it by opening a new window in the same process. Also handle the plain CLI argument path (used when running from a terminal).
 - If the event route proves awkward, the fallback is: on receiving an open-file event, spawn a fresh `mdown <path>` child process and let the receiving process exit if it has no windows.
 
+## File association (`mdown install` / `mdown uninstall`)
+`cargo install` only puts a binary on PATH, so a one-time setup command registers `.md`:
+- **Windows:** write the ProgId and "Open with" registration under `HKCU\Software\Classes` (no admin needed). Windows protects the default-app choice, so the user picks mdown as the default once through "Open with → Choose another app → Always". Do not attempt to forge that choice.
+- **macOS:** a bare binary cannot be a default app. Generate `~/Applications/mdown.app` locally, containing an `Info.plist` that declares the `.md`/`.markdown` document types and an executable that launches the installed binary (a small native stub or a script that execs it; verify that file-open events reach the real process, and if a script cannot receive them, make the stub the actual binary or a copy of it). Because it is created locally, it is not quarantined. The user then picks "Open with → Always" once.
+- **`install` asks what to set up** (interactive prompt; flags `--default`, `--context-menu`, `--all`, `--yes` skip it for scripting):
+  1. **Context menu only:** a right-click "Open with mdown" entry for `.md`/`.markdown`. Windows: `HKCU\Software\Classes\SystemFileAssociations\.md\shell\mdown` (no admin). macOS: the generated `mdown.app` shows up under "Open With" automatically.
+  2. **Default app for Markdown:** do everything in (1), register the ProgId, then take the user to the OS's own default-app step: Windows opens `ms-settings:defaultapps` (the UserChoice hash means we must not write the choice ourselves); macOS can set the handler through the LaunchServices API (`LSSetDefaultRoleHandlerForContentType`) after the user confirms the prompt, which is a supported API, not a forgery.
+  3. **Both** (default is to ask; context menu alone is the safe default if the user just presses Enter).
+- `uninstall` reverses everything `install` registered.
+
 ## Rendering pipeline (all heavy parts lazy-loaded)
 | Feature | Library | Load rule |
 |---|---|---|
