@@ -8,6 +8,10 @@ use std::path::PathBuf;
 #[path = "../settings.rs"]
 mod settings;
 
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod platform;
+
 /// What `install` should set up. They are independent: a user can want the right-click entry
 /// without mdown taking over double-click, or the reverse.
 #[derive(Clone, Copy)]

@@ -55,6 +55,7 @@ panic = "abort"
 strip = true
 
 [target."cfg(windows)".dependencies]
+winreg = "0.56.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 muda = "0.21.2"
