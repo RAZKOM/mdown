@@ -4,6 +4,7 @@
 
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 #[path = "../settings.rs"]
 mod settings;
@@ -28,6 +29,23 @@ pub struct Setup {
 
 const APP: &str = if cfg!(windows) { "mdown-app.exe" } else { "mdown-app" };
 
+pub fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("install") => install(&args[1..]),
+        Some("uninstall") => uninstall(),
+        Some("theme") => theme(&args[1..]),
+        Some("-h" | "--help" | "help") => usage(),
+        Some("-V" | "--version" | "version") => println!("mdown {}", env!("CARGO_PKG_VERSION")),
+        None => {
+            first_run_prompt();
+            usage();
+            std::process::exit(2);
+        }
+        Some(_) => view(&args),
+    }
+}
+
 fn usage() {
     println!(
         "mdown {}: a small window for Markdown files\n\n\
@@ -44,6 +62,37 @@ fn usage() {
          --no-open        don't open the system's default-apps settings",
         env!("CARGO_PKG_VERSION")
     );
+}
+
+fn view(files: &[String]) {
+    let mut missing = false;
+    for f in files {
+        if !std::path::Path::new(f).is_file() {
+            eprintln!("mdown: no such file: {f}");
+            missing = true;
+        }
+    }
+    if missing {
+        std::process::exit(1);
+    }
+    first_run_prompt();
+
+    let app = match std::env::current_exe() {
+        Ok(exe) => exe.with_file_name(APP),
+        Err(e) => fail(&format!("cannot locate itself: {e}")),
+    };
+    if !app.exists() {
+        fail(&format!("{} is missing next to this command; reinstall with `cargo install mdown`", app.display()));
+    }
+    let mut cmd = Command::new(app);
+    cmd.args(files).stdin(Stdio::null()).stdout(Stdio::null());
+    // Builds with the `debug-hooks` feature keep stderr reachable (see MDOWN_DEBUG_JS in the app).
+    if !cfg!(feature = "debug-hooks") {
+        cmd.stderr(Stdio::null());
+    }
+    if let Err(e) = cmd.spawn() {
+        fail(&format!("could not start the viewer: {e}"));
+    }
 }
 
 fn fail(msg: &str) -> ! {
