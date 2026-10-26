@@ -1,0 +1,96 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds the programs for each platform, attaches them to a GitHub
+# release (cargo-binstall reads those archives, see [package.metadata.binstall]) and publishes
+# the crate to crates.io. To release: bump `version` in Cargo.toml, commit, then
+#   git tag v<version> && git push origin v<version>
+# Publishing needs a crates.io API token stored as the repository secret CARGO_REGISTRY_TOKEN.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag must match the version in Cargo.toml
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          if [ "v$version" != "${{ github.ref_name }}" ]; then
+            echo "Tag ${{ github.ref_name }} does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, format: zip }
+          - { os: macos-latest, target: aarch64-apple-darwin, format: tgz }
+          - { os: macos-latest, target: x86_64-apple-darwin, format: tgz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (zip)
+        if: matrix.format == 'zip'
+        shell: pwsh
+        run: |
+          $out = "mdown-${{ matrix.target }}-${{ github.ref_name }}"
+          New-Item -ItemType Directory $out | Out-Null
+          foreach ($b in "mdown", "mdown-app") { Copy-Item "target/${{ matrix.target }}/release/$b.exe" $out }
+          Copy-Item README.md, LICENSE $out
+          Compress-Archive -Path "$out/*" -DestinationPath "$out.zip"
+
+      - name: Package (tgz)
+        if: matrix.format == 'tgz'
+        run: |
+          out="mdown-${{ matrix.target }}-${{ github.ref_name }}"
+          mkdir "$out"
+          for b in mdown mdown-app; do cp "target/${{ matrix.target }}/release/$b" "$out/"; done
+          cp README.md LICENSE "$out/"
+          tar -czf "$out.tgz" -C "$out" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdown-${{ matrix.target }}
+          path: mdown-*.${{ matrix.format }}
+
+  # Runs on Windows because `cargo publish` compiles the packaged crate to verify it, and the
+  # Linux runner has no WebKitGTK for wry. It only starts once every platform has built.
+  publish:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # binstall looks the version up on crates.io, so the release is only created once that worked.
+  release:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" --title "${{ github.ref_name }}" --generate-notes

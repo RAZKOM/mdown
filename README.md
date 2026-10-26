@@ -112,3 +112,6 @@ cargo build --release
 
 To change the front end, edit `frontend/src` and run `npm install && npm run build` inside `frontend/`. `node mkicon.mjs` there regenerates the icons in `assets/`. `cargo test` runs the Rust tests.
 
+## License
+
+[MIT](LICENSE)
