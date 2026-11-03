@@ -34,6 +34,8 @@ enum Ev {
     /// A window changed a setting (already saved); bring every window in line with the file.
     /// The window that made the change also confirms it with a toast.
     Settings(WindowId, String),
+    /// The settings file changed, possibly from another mdown process or `mdown theme`.
+    SettingsFile,
     /// The page's unsaved-changes state changed.
     Dirty(WindowId, bool),
     Print(WindowId),
@@ -198,6 +200,16 @@ fn run(files: Vec<PathBuf>) {
     #[cfg(target_os = "macos")]
     let _menu = menu::install(proxy.clone());
 
+    // Windows starts one process per double-clicked file, and `mdown theme` runs on its own, so
+    // a change saved anywhere else reaches this process's windows through the file.
+    let settings_proxy = proxy.clone();
+    let settings_watch = settings::file().and_then(|f| {
+        std::fs::create_dir_all(f.parent()?).ok()?;
+        watch::watch(&f, move || {
+            let _ = settings_proxy.send_event(Ev::SettingsFile);
+        })
+    });
+
     let mut viewers: HashMap<WindowId, Viewer> = HashMap::new();
     for file in files {
         if let Some(v) = open_viewer(&event_loop, &proxy, &mut context, file) {
@@ -228,21 +240,14 @@ fn run(files: Vec<PathBuf>) {
     }
 
     event_loop.run(move |event, target, flow| {
+        let _ = &settings_watch; // lives as long as the loop
         match event {
             Event::UserEvent(Ev::Reload(id)) => eval(&viewers, id, "window.__reload && window.__reload()"),
             Event::UserEvent(Ev::Eval(id, js)) => eval(&viewers, id, &js),
-            Event::UserEvent(Ev::Settings(origin, key)) => {
-                let prefs = settings::load();
-                let json = serde_json::json!({ "theme": prefs.theme, "width": prefs.width, "zoom": prefs.zoom });
-                for (id, v) in &viewers {
-                    v.window.set_theme(window_theme(&prefs.theme));
-                    let _ = v.webview.set_background_color(page_background(&prefs.theme, &v.window));
-                    let _ = v.webview.zoom(prefs.zoom);
-                    // The page restyles itself; only the window that asked announces the change.
-                    let changed = if *id == origin { serde_json::Value::from(key.as_str()) } else { serde_json::Value::Null };
-                    let _ = v.webview.evaluate_script(&format!("window.__applySettings && window.__applySettings({json}, {changed})"));
-                }
-            }
+            Event::UserEvent(Ev::Settings(origin, key)) => apply_settings(&viewers, Some((origin, &key))),
+            // Also fires for this process's own saves, a moment after `Settings`; applying the
+            // same values twice changes nothing.
+            Event::UserEvent(Ev::SettingsFile) => apply_settings(&viewers, None),
             Event::UserEvent(Ev::Open(path)) => open_path(target, &proxy, &mut context, &mut viewers, path),
             Event::UserEvent(Ev::Dirty(id, dirty)) => {
                 if let Some(v) = viewers.get_mut(&id) {
@@ -303,6 +308,23 @@ fn run(files: Vec<PathBuf>) {
             }
         }
     });
+}
+
+/// Brings every window in line with the settings file. `origin` is the window that made the
+/// change and which setting it was; only that window announces it with a toast.
+fn apply_settings(viewers: &HashMap<WindowId, Viewer>, origin: Option<(WindowId, &str)>) {
+    let prefs = settings::load();
+    let json = serde_json::json!({ "theme": prefs.theme, "width": prefs.width, "zoom": prefs.zoom });
+    for (id, v) in viewers {
+        v.window.set_theme(window_theme(&prefs.theme));
+        let _ = v.webview.set_background_color(page_background(&prefs.theme, &v.window));
+        let _ = v.webview.zoom(prefs.zoom);
+        let changed = match origin {
+            Some((origin, key)) if origin == *id => serde_json::Value::from(key),
+            _ => serde_json::Value::Null,
+        };
+        let _ = v.webview.evaluate_script(&format!("window.__applySettings && window.__applySettings({json}, {changed})"));
+    }
 }
 
 fn eval(viewers: &HashMap<WindowId, Viewer>, id: WindowId, js: &str) {

@@ -202,7 +202,7 @@ fn theme(args: &[String]) {
             println!("{}   (settings file: {file})", settings::theme());
         }
         Some(mode) => match settings::set_theme(mode) {
-            Ok(()) => println!("Theme set to {mode}. New windows use it; in an open window use the right-click menu or Ctrl/Cmd+Shift+L."),
+            Ok(()) => println!("Theme set to {mode}."),
             Err(e) => fail(&e),
         },
     }
