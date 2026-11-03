@@ -4,9 +4,10 @@ name: Release
 # release with the archives attached (cargo-binstall reads them, see [package.metadata.binstall]).
 # To release, bump `version` in Cargo.toml (and the mdown entry in Cargo.lock), commit, then either
 #   - in the browser: Actions > Release > Run workflow, on main. The release step creates the
-#     tag v<version> on that commit; or
+#     tag v<version> on that commit (preferred: nothing appears until the crate is published);
+#   - in the browser: Releases > Draft a new release, with a new tag v<version> on main. The
+#     tag starts this workflow, which attaches the archives to that release when it's done; or
 #   - from a terminal: git tag v<version> && git push origin v<version>
-# Don't create the release by hand on GitHub: this workflow makes it once the crate is published.
 # Publishing needs a crates.io API token stored as the repository secret CARGO_REGISTRY_TOKEN.
 
 on:
@@ -110,8 +111,14 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Create the release
+      - name: Create the release, or add the archives to one made on GitHub
         env:
           GH_TOKEN: ${{ github.token }}
-        # On a manual run the tag doesn't exist yet; --target creates it on the commit just built.
-        run: gh release create "${{ needs.check.outputs.tag }}" dist/* --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "${{ needs.check.outputs.tag }}" --generate-notes
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            # On a manual run the tag doesn't exist yet; --target creates it on the commit just built.
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+          fi
