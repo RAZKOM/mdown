@@ -15,10 +15,30 @@ const md = new MarkdownIt({ html: true, linkify: true, typographer: false })
   .use(anchor, { tabIndex: false })
   .use(frontMatter, () => {});
 
-// Relative URLs go through the asset route, which the Rust side confines to the file's folder.
-function assetUrl(src) {
+const decode = (s) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+
+// Relative URLs go through the asset routes, which the Rust side confines to the document's
+// git repository (or its folder, outside one). The browser would fold leading "../" segments
+// into the URL path, so they travel as a count: "../../img/a.png" becomes "/up/2/img/a.png".
+// Relative references inside a model (a .gltf's textures) then still resolve as they should.
+export function assetUrl(src) {
   if (/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(src)) return src;
-  return "/a/" + src.split("/").map((s) => encodeURIComponent(decodeURIComponent(s))).join("/");
+  const path = src.split(/[?#]/)[0];
+  if (path.startsWith("/")) return "/a/" + encodeURIComponent(decode(path)); // absolute: refused
+  const parts = [];
+  let up = 0;
+  for (const seg of path.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.length ? parts.pop() : up++;
+    else parts.push(encodeURIComponent(decode(seg)));
+  }
+  return (up ? `/up/${up}/` : "/a/") + parts.join("/");
 }
 
 function rewriteAssets(el) {
