@@ -26,7 +26,7 @@ const scroll = {
   get: () => (editing() ? $preview.scrollTop : window.scrollY),
   set: (y) => (editing() ? ($preview.scrollTop = y) : window.scrollTo(0, y)),
 };
-const BOM = "﻿";
+const BOM = "\uFEFF";
 const paint = (text) => renderInto($content, text.startsWith(BOM) ? text.slice(1) : text, scroll);
 
 function setDirty(v) {
