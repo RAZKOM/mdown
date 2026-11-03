@@ -22,6 +22,7 @@ export function showError(el, what, err) {
   box.innerHTML = "<strong></strong><pre></pre>";
   box.firstChild.textContent = what + " failed";
   box.lastChild.textContent = msg;
+  if (el.dataset?.line) box.dataset.line = el.dataset.line; // keeps scroll sync anchored
   el.replaceWith(box);
 }
 

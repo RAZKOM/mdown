@@ -69,5 +69,6 @@ export default function math(md) {
   md.block.ruler.after("blockquote", "math_block", blockMath, { alt: ["paragraph", "reference", "blockquote", "list"] });
   const e = md.utils.escapeHtml;
   md.renderer.rules.math_inline = (t, i) => `<span class="math" data-math="inline">${e(t[i].content)}</span>`;
-  md.renderer.rules.math_block = (t, i) => `<div class="math" data-math="display">${e(t[i].content)}</div>\n`;
+  md.renderer.rules.math_block = (t, i, o, env, self) =>
+    `<div class="math" data-math="display"${self.renderAttrs(t[i])}>${e(t[i].content)}</div>\n`;
 }

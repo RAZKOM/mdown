@@ -20,6 +20,7 @@ export async function renderMermaid(codes) {
     const fig = document.createElement("figure");
     fig.className = "mermaid";
     fig.dataset.src = code.textContent;
+    if (code.parentElement.dataset.line) fig.dataset.line = code.parentElement.dataset.line;
     code.parentElement.replaceWith(fig);
     await draw(m, fig);
   }
