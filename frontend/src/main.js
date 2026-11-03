@@ -11,6 +11,8 @@ const send = (msg) => window.ipc.postMessage(JSON.stringify(msg));
 // Three texts, kept apart so nothing is ever overwritten silently:
 //   diskText   what we last read from, or wrote to, the file
 //   bufferText what the preview shows (differs from diskText only while there are edits)
+// Both are exactly what is (or will be) on disk, byte-order mark and CRLF line endings included.
+// The editor only ever sees "\n", so its text goes through fromDisk/toDisk on the way in and out.
 let diskText = null;
 let bufferText = null;
 let pendingDisk = null; // newer on-disk text we are holding back while there are edits
@@ -24,7 +26,8 @@ const scroll = {
   get: () => (editing() ? $preview.scrollTop : window.scrollY),
   set: (y) => (editing() ? ($preview.scrollTop = y) : window.scrollTo(0, y)),
 };
-const paint = (text) => renderInto($content, text, scroll);
+const BOM = "﻿";
+const paint = (text) => renderInto($content, text.startsWith(BOM) ? text.slice(1) : text, scroll);
 
 function setDirty(v) {
   if (v === dirty) return;
@@ -32,18 +35,39 @@ function setDirty(v) {
   send({ t: "dirty", v });
 }
 
+// How the file is written, so a save puts back what the editor normalised away. `lossy` means
+// the file isn't valid UTF-8: it can be shown, but saving would replace the bad bytes for good.
+let format = { bom: false, crlf: false, lossy: false };
+
+function detectFormat(text, lossy) {
+  const eol = /\r?\n/.exec(text);
+  format = { bom: text.startsWith(BOM), crlf: eol?.[0] === "\r\n", lossy };
+}
+
+const fromDisk = (text) => (text.startsWith(BOM) ? text.slice(1) : text).replace(/\r\n?/g, "\n");
+const toDisk = (text) => (format.bom ? BOM : "") + (format.crlf ? text.replace(/\n/g, "\r\n") : text);
+
 async function fetchDoc() {
   const res = await fetch("/doc", { cache: "no-store" });
   // A file caught mid-save can be briefly missing; keep showing what we have.
-  return res.ok ? res.text() : null;
+  if (!res.ok) return null;
+  const bytes = await res.arrayBuffer();
+  // res.text() would drop a byte-order mark and quietly patch invalid bytes; keep both visible.
+  try {
+    return { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes), lossy: false };
+  } catch {
+    return { text: new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes), lossy: true };
+  }
 }
 
 // Called at startup and by the Rust file watcher.
 async function reload() {
-  const text = await fetchDoc();
-  if (text === null) return;
+  const got = await fetchDoc();
+  if (got === null) return;
+  const { text, lossy } = got;
   if (diskText === null) {
     diskText = bufferText = text;
+    detectFormat(text, lossy);
     return paint(text);
   }
   if (text === diskText) return;
@@ -52,19 +76,20 @@ async function reload() {
     diskText = text;
     return setDirty(false);
   }
-  if (!dirty) return adopt(text);
+  if (!dirty) return adopt(text, lossy);
   // Edits in progress: never clobber them. Offer a choice instead.
-  pendingDisk = text;
+  pendingDisk = got;
   showBanner("This file changed on disk.", [
-    ["Reload", () => adopt(pendingDisk)],
-    ["Keep mine", () => { diskText = pendingDisk; }],
+    ["Reload", () => adopt(pendingDisk.text, pendingDisk.lossy)],
+    ["Keep mine", () => { diskText = pendingDisk.text; }],
   ]);
 }
 
-function adopt(text) {
+function adopt(text, lossy) {
   diskText = bufferText = text;
+  detectFormat(text, lossy);
   pendingDisk = null;
-  editor?.setDoc(text);
+  editor?.setDoc(fromDisk(text));
   setDirty(false);
   hideBanner();
   return paint(text);
@@ -80,7 +105,7 @@ function onEdit() {
 }
 
 function syncBuffer() {
-  bufferText = editor.getDoc();
+  bufferText = toDisk(editor.getDoc());
   setDirty(bufferText !== diskText); // undoing back to the saved text is clean again
   paint(bufferText);
 }
@@ -93,7 +118,7 @@ async function toggleEdit() {
   if (!editor) {
     const { createEditor } = await import("./editor.js");
     editor = createEditor($editor, {
-      doc: bufferText ?? "",
+      doc: fromDisk(bufferText ?? ""),
       onChange: onEdit,
       onScroll: (ratio) => {
         $preview.scrollTop = ratio * ($preview.scrollHeight - $preview.clientHeight);
@@ -103,12 +128,18 @@ async function toggleEdit() {
   }
   document.body.classList.add("editing");
   editor.focus();
+  if (format.lossy) toast("This file isn't UTF-8 text. You can edit it, but saving is turned off.", true);
 }
 
 function save() {
   if (!editor) return;
+  if (format.lossy) {
+    closeAfterSave = false;
+    toast("This file isn't UTF-8 text, so mdown won't save over it.", true);
+    return;
+  }
   clearTimeout(syncTimer);
-  bufferText = savingText = editor.getDoc();
+  bufferText = savingText = toDisk(editor.getDoc());
   send({ t: "save", text: savingText });
 }
 
