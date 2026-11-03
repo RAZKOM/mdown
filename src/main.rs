@@ -29,6 +29,8 @@ const ORIGIN: &str = "mdown://localhost";
 enum Ev {
     Reload(WindowId),
     Open(PathBuf),
+    /// Files were dropped on a window.
+    Dropped(WindowId, Vec<PathBuf>),
     /// Run a script in a window's page.
     Eval(WindowId, String),
     /// A window changed a setting (already saved); bring every window in line with the file.
@@ -163,12 +165,23 @@ fn open_viewer(
     let doc_base = base.clone();
     let root = assets::asset_root(&base);
     let ipc = Ipc { id, file: file.clone(), base, proxy: proxy.clone() };
+    let drop_proxy = proxy.clone();
     let builder = WebViewBuilder::new_with_web_context(context);
     #[cfg(feature = "debug-hooks")]
     let builder = builder.with_initialization_script(TIMING_SCRIPT);
     let webview = builder
         .with_custom_protocol("mdown".into(), move |_, req| assets::respond(&doc, &doc_base, &root, req))
         .with_ipc_handler(move |req| handle_ipc(&ipc, req.body()))
+        // Dropped files arrive here with their real paths (the page only sees anonymous blobs).
+        // Returning true keeps the webview from navigating to a dropped file.
+        .with_drag_drop_handler(move |event| match event {
+            wry::DragDropEvent::Enter { paths, .. } => !paths.is_empty(),
+            wry::DragDropEvent::Drop { paths, .. } if !paths.is_empty() => {
+                let _ = drop_proxy.send_event(Ev::Dropped(id, paths));
+                true
+            }
+            _ => false,
+        })
         // The page owns Ctrl/Cmd +, -, 0 and Ctrl+wheel so the level is a saved setting.
         .with_background_color(page_background(&prefs.theme, &window))
         .with_hotkeys_zoom(false)
@@ -249,6 +262,15 @@ fn run(files: Vec<PathBuf>) {
             // same values twice changes nothing.
             Event::UserEvent(Ev::SettingsFile) => apply_settings(&viewers, None),
             Event::UserEvent(Ev::Open(path)) => open_path(target, &proxy, &mut context, &mut viewers, path),
+            Event::UserEvent(Ev::Dropped(id, paths)) => {
+                let (docs, others): (Vec<_>, Vec<_>) = paths.into_iter().partition(|p| p.is_file() && is_markdown(p));
+                for path in docs {
+                    open_path(target, &proxy, &mut context, &mut viewers, path);
+                }
+                if !others.is_empty() {
+                    eval(&viewers, id, "window.__toast && window.__toast(\"mdown opens Markdown files (.md, .markdown).\", true)");
+                }
+            }
             Event::UserEvent(Ev::Dirty(id, dirty)) => {
                 if let Some(v) = viewers.get_mut(&id) {
                     v.dirty = dirty;
@@ -444,6 +466,10 @@ fn reveal(file: &Path) {
     }
 }
 
+fn is_markdown(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+}
+
 /// Files a link may open in their default app. Anything else (programs, scripts, installers,
 /// documents that can carry macros) is shown in the file manager instead, so a click in a
 /// document never runs something.
@@ -462,7 +488,7 @@ fn open_link(base: &Path, proxy: &EventLoopProxy<Ev>, href: &str) {
     let ext = target.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     if target.is_dir() {
         let _ = open::that(&target);
-    } else if ext == "md" || ext == "markdown" {
+    } else if is_markdown(&target) {
         let _ = proxy.send_event(Ev::Open(target));
     } else if OPENABLE.contains(&ext.as_str()) {
         let _ = open::that(&target);

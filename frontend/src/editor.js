@@ -64,9 +64,18 @@ export function createEditor(parent, { doc, onChange, onScroll }) {
       ],
     }),
   });
+  // Reports the (fractional, 0-based) source line at the top of the view, for the preview to follow.
   view.scrollDOM.addEventListener("scroll", () => {
-    const max = view.scrollDOM.scrollHeight - view.scrollDOM.clientHeight;
-    onScroll(max > 0 ? view.scrollDOM.scrollTop / max : 0);
+    const { scrollTop, scrollHeight, clientHeight } = view.scrollDOM;
+    const height = view.scrollDOM.getBoundingClientRect().top - view.documentTop;
+    const block = view.lineBlockAtHeight(height);
+    const within = block.height > 0 ? Math.min(1, Math.max(0, (height - block.top) / block.height)) : 0;
+    onScroll({
+      line: view.state.doc.lineAt(block.from).number - 1 + within,
+      lines: view.state.doc.lines,
+      atTop: scrollTop <= 0,
+      atEnd: scrollTop >= scrollHeight - clientHeight - 1,
+    });
   });
   return {
     view,
@@ -79,6 +88,11 @@ export function createEditor(parent, { doc, onChange, onScroll }) {
       });
     },
     focus: () => view.focus(),
+    // Puts a (0-based) source line at the top of the editor.
+    scrollToLine(line) {
+      const pos = view.state.doc.line(Math.min(view.state.doc.lines, line + 1)).from;
+      view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "start" }) });
+    },
     // Used by the context menu, which can't rely on the browser's own clipboard commands.
     getSelection: () => view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to),
     replaceSelection(text) {

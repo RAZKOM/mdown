@@ -5,15 +5,28 @@ import anchor from "markdown-it-anchor";
 import frontMatter from "markdown-it-front-matter";
 import DOMPurify from "dompurify";
 import math from "./math.js";
+import alerts from "./alerts.js";
 import { showError, disposeAll } from "./blocks/lazy.js";
 import { isModelUrl } from "./blocks/model.js";
+
+// Stamps each block with the source line it starts on (data-line, 0-based), so the preview can
+// follow the editor line by line and the outline can move the editor to a heading.
+function sourceLines(md) {
+  md.core.ruler.push("source_lines", (state) => {
+    for (const t of state.tokens) {
+      if (t.map && t.nesting >= 0 && t.type !== "inline") t.attrSet("data-line", String(t.map[0]));
+    }
+  });
+}
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: false })
   .use(math)
   .use(footnote)
   .use(taskLists, { enabled: false })
   .use(anchor, { tabIndex: false })
-  .use(frontMatter, () => {});
+  .use(frontMatter, () => {})
+  .use(alerts)
+  .use(sourceLines);
 
 const decode = (s) => {
   try {
@@ -73,6 +86,11 @@ export async function renderInto(root, text, scroll) {
   root.style.minHeight = root.offsetHeight + "px";
   disposeAll();
   root.innerHTML = html;
+  // markdown-it puts a fence's attributes on <code>; the line belongs to the whole block.
+  for (const code of root.querySelectorAll("pre > code[data-line]")) {
+    code.parentElement.dataset.line = code.dataset.line;
+    code.removeAttribute("data-line");
+  }
   rewriteAssets(root);
   scroll.set(y);
   await hydrate(root, gen);

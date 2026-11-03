@@ -1,6 +1,8 @@
 import { renderInto, rethemeAll } from "./render.js";
 import { showBanner, hideBanner, confirmDialog, dialogOpen, toast, showMenu } from "./ui.js";
 import { theme } from "./blocks/lazy.js";
+import { openFind, closeFind, refreshFind, findOpen, step as findStep } from "./find.js";
+import { toggleOutline, refreshOutline, outlineOpen } from "./outline.js";
 
 const $preview = document.getElementById("preview");
 const $content = document.getElementById("content");
@@ -26,8 +28,12 @@ const scroll = {
   get: () => (editing() ? $preview.scrollTop : window.scrollY),
   set: (y) => (editing() ? ($preview.scrollTop = y) : window.scrollTo(0, y)),
 };
-const BOM = "﻿";
-const paint = (text) => renderInto($content, text.startsWith(BOM) ? text.slice(1) : text, scroll);
+const BOM = "\uFEFF";
+async function paint(text) {
+  await renderInto($content, text.startsWith(BOM) ? text.slice(1) : text, scroll);
+  refreshFind();
+  refreshOutline();
+}
 
 function setDirty(v) {
   if (v === dirty) return;
@@ -120,9 +126,7 @@ async function toggleEdit() {
     editor = createEditor($editor, {
       doc: fromDisk(bufferText ?? ""),
       onChange: onEdit,
-      onScroll: (ratio) => {
-        $preview.scrollTop = ratio * ($preview.scrollHeight - $preview.clientHeight);
-      },
+      onScroll: followEditor,
     });
     window.__editor = editor; // handy for tests and debugging
   }
@@ -130,6 +134,71 @@ async function toggleEdit() {
   editor.focus();
   if (format.lossy) toast("This file isn't UTF-8 text. You can edit it, but saving is turned off.", true);
 }
+
+// Keeps the preview on the part of the document the editor shows. Blocks carry the source line
+// they start on (data-line); the position between two of them is interpolated, so a long
+// paragraph or a tall diagram still scrolls smoothly.
+function followEditor({ line, lines, atTop, atEnd }) {
+  if (atTop) return ($preview.scrollTop = 0);
+  if (atEnd) return ($preview.scrollTop = $preview.scrollHeight);
+  let before = null;
+  let after = null;
+  for (const el of $content.querySelectorAll("[data-line]")) {
+    if (el.closest(".footnotes")) continue; // rendered at the end, whatever their source line
+    if (Number(el.dataset.line) <= line) before = el;
+    else {
+      after = el;
+      break;
+    }
+  }
+  const base = $preview.getBoundingClientRect().top - $preview.scrollTop;
+  const y = (el) => el.getBoundingClientRect().top - base;
+  const from = before ? { line: Number(before.dataset.line), y: y(before) } : { line: 0, y: 0 };
+  const to = after ? { line: Number(after.dataset.line), y: y(after) } : { line: lines, y: $content.scrollHeight };
+  const t = to.line > from.line ? (line - from.line) / (to.line - from.line) : 0;
+  $preview.scrollTop = from.y + Math.min(1, Math.max(0, t)) * (to.y - from.y);
+}
+
+// Outline clicks: in edit mode the editor moves and the preview follows it.
+function jumpTo(heading) {
+  if (editing() && editor && heading.dataset.line) editor.scrollToLine(Number(heading.dataset.line));
+  else heading.scrollIntoView({ block: "start" });
+}
+
+const find = () => openFind($content, String(getSelection()).trim());
+const outline = () => toggleOutline($content, jumpTo);
+
+// ---- image zoom ------------------------------------------------------------------------
+//
+// An image shown smaller than its real size opens full size in an overlay; any click or key
+// closes it.
+
+const zoomable = (img) =>
+  img.matches("#content img:not(.snap)") && !img.closest("a") && (img.naturalWidth > img.clientWidth + 1 || img.naturalHeight > img.clientHeight + 1);
+
+function zoomImage(img) {
+  const box = document.createElement("div");
+  box.id = "lightbox";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", img.alt || "Image");
+  box.appendChild(Object.assign(document.createElement("img"), { src: img.currentSrc || img.src, alt: img.alt }));
+  const close = () => {
+    box.remove();
+    window.removeEventListener("keydown", onKey, true);
+  };
+  const onKey = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  };
+  box.addEventListener("click", close);
+  window.addEventListener("keydown", onKey, true);
+  document.body.appendChild(box);
+}
+
+document.addEventListener("mouseover", (e) => {
+  if (e.target.tagName === "IMG") e.target.classList.toggle("zoomable", zoomable(e.target));
+});
 
 function save() {
   if (!editor) return;
@@ -246,10 +315,12 @@ function menuItems(e) {
     if (link) items.push({ label: "Copy link address", action: () => copyText(link.getAttribute("href"), "Link copied") });
     if (code) items.push({ label: "Copy code", action: () => copyText((code.querySelector("code") ?? code).textContent.replace(/\n$/, ""), "Code copied") });
     items.push({ label: "Select all", hint: mod + "A", action: () => getSelection().selectAllChildren($content) });
+    items.push({ label: "Find…", hint: mod + "F", action: find });
   }
   items.push("-", { label: editing() ? "View mode" : "Edit mode", hint: mod + "E", action: toggleEdit });
   if (editor) items.push({ label: "Save", hint: mod + "S", disabled: !dirty, action: save });
   items.push({ label: "Print / Save as PDF…", hint: mod + "P", action: printPage }, "-");
+  items.push({ label: "Contents", hint: mod + (isMac ? "⇧O" : "Shift+O"), checked: outlineOpen(), action: outline });
 
   const pct = Math.round(prefs.zoom * 100);
   items.push(
@@ -330,9 +401,22 @@ document.addEventListener(
   (e) => {
     const cmd = isMac ? e.metaKey : e.ctrlKey;
     const key = e.key.toLowerCase();
+    const inEditor = !!e.target.closest?.("#editor");
     if (cmd && e.shiftKey && !e.altKey && key === "l") {
       e.preventDefault();
       cycleTheme();
+    } else if (cmd && e.shiftKey && !e.altKey && key === "o") {
+      e.preventDefault();
+      outline();
+    } else if (cmd && !e.shiftKey && !e.altKey && key === "f" && !inEditor) {
+      // In the editor, CodeMirror's own search panel takes Ctrl/Cmd+F.
+      e.preventDefault();
+      find();
+    } else if (findOpen() && (e.key === "F3" || (cmd && !e.altKey && key === "g"))) {
+      e.preventDefault();
+      findStep(e.shiftKey ? -1 : 1);
+    } else if (findOpen() && e.key === "Escape" && !inEditor && !e.target.closest?.("#find")) {
+      closeFind();
     } else if (cmd && !e.altKey && ["e", "s", "p", "r"].includes(key)) {
       e.preventDefault();
       if (e.shiftKey) return;
@@ -350,6 +434,7 @@ document.addEventListener(
 );
 
 document.addEventListener("click", (e) => {
+  if (e.target.tagName === "IMG" && zoomable(e.target)) return zoomImage(e.target);
   const a = e.target.closest("a[href]");
   if (!a) return;
   const href = a.getAttribute("href");
@@ -362,6 +447,7 @@ document.addEventListener("click", (e) => {
 for (const type of ["dragover", "drop"]) document.addEventListener(type, (e) => e.preventDefault());
 
 window.__reload = reload;
+window.__toast = toast; // for messages from the app, such as a dropped file it can't open
 // Lets automated checks render the print view without opening the system print dialog.
 window.__print = {
   prepare: async () => (await import("./print.js")).preparePrint(),

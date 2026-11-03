@@ -30,6 +30,7 @@ export async function renderCharts(codes) {
     const canvas = document.createElement("canvas");
     fig.appendChild(canvas);
     fig._config = config;
+    if (code.parentElement.dataset.line) fig.dataset.line = code.parentElement.dataset.line;
     code.parentElement.replaceWith(fig);
     try {
       fig._chart = new C(canvas, structuredClone(config));

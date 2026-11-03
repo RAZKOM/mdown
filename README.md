@@ -28,7 +28,7 @@ mdown notes.md               # open a file
 mdown a.md b.md c.md         # one window each
 ```
 
-Links between Markdown files open in a new window (`../` links included), links to folders, PDFs, images and text files open in their usual app, and links to anything else are shown in the file manager rather than run. Images and models resolve relative to the document, and the view updates by itself whenever the file changes on disk. If you have unsaved edits when that happens, mdown asks before replacing them.
+Drop `.md` files on a window to open them too. Links between Markdown files open in a new window (`../` links included), links to folders, PDFs, images and text files open in their usual app, and links to anything else are shown in the file manager rather than run. Images and models resolve relative to the document, and the view updates by itself whenever the file changes on disk. If you have unsaved edits when that happens, mdown asks before replacing them.
 
 ### Open `.md` files from the file manager
 
@@ -49,6 +49,8 @@ For scripts: `mdown install --context-menu`, `--default` or `--all`, with `--yes
 ## What it renders
 
 - **Markdown**: tables, task lists, footnotes, heading anchors, strikethrough, autolinks, front matter (hidden), and inline HTML (sanitized).
+- **Alerts**: GitHub's `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` callouts.
+- **Images**: click one that's shown smaller than its real size to see it full size.
 - **Code**: syntax highlighting for 28 common languages, loaded only when a document uses them.
 - **Math**: `$inline$` and `$$display$$` with KaTeX.
 - **Diagrams**: ```` ```mermaid ```` fences.
@@ -57,15 +59,19 @@ For scripts: `mdown install --context-menu`, `--default` or `--all`, with `--yes
 
 A block that fails (bad Mermaid, broken JSON, a missing model) shows an inline error and the rest of the page renders normally. Each of the heavier features is loaded only when the document needs it, so plain Markdown stays quick. See [`docs/showcase.md`](docs/showcase.md) for the document in the screenshots.
 
+## Reading
+
+<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> finds text in the page (<kbd>Enter</kbd> and <kbd>Shift</kbd>+<kbd>Enter</kbd> step through the matches, <kbd>Esc</kbd> closes). <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> opens a *Contents* panel listing the headings, with the section you're reading highlighted; click one to jump to it.
+
 ## Editing and PDF
 
-<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>E</kbd> splits the window into an editor and a live preview (a CodeMirror editor with Markdown highlighting, undo history and search); press it again to go back to reading. <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd> saves. Closing a window with unsaved edits asks first.
+<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>E</kbd> splits the window into an editor and a live preview (a CodeMirror editor with Markdown highlighting, undo history and search); press it again to go back to reading. The preview follows the editor line by line as you scroll, and clicking a heading in the *Contents* panel moves the editor there. <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd> saves. Closing a window with unsaved edits asks first.
 
 <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>P</kbd> opens the system print dialog, where *Save as PDF* is one of the printers. Printing always uses a clean light layout, with diagrams, charts and 3D models drawn as static images.
 
 ## Right-click menu
 
-Right-click anywhere for copy and select-all (cut and paste in the editor), *Copy link address* and *Copy code* on links and code blocks, edit/view mode, save, print, the **theme**, **text size** and **page width** settings, *Show in File Explorer* / *Reveal in Finder*, and *Copy file path*.
+Right-click anywhere for copy and select-all (cut and paste in the editor), *Copy link address* and *Copy code* on links and code blocks, *Find*, edit/view mode, save, print, *Contents*, the **theme**, **text size** and **page width** settings, *Show in File Explorer* / *Reveal in Finder*, and *Copy file path*.
 
 <p align="center"><img src="docs/menu.png" width="360" alt="the right-click menu with the Theme submenu open"></p>
 
@@ -73,6 +79,8 @@ Right-click anywhere for copy and select-all (cut and paste in the editor), *Cop
 
 | | |
 |---|---|
+| <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> | Find (in the editor: the editor's search) |
+| <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Show or hide the *Contents* panel |
 | <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>E</kbd> | Toggle edit mode |
 | <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>S</kbd> | Save |
 | <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>P</kbd> | Print or save as PDF |
