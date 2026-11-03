@@ -1,6 +1,6 @@
 [package]
 name = "mdown"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.90"
 description = "A lightweight native Markdown viewer and editor with math, diagrams, charts and 3D models"
