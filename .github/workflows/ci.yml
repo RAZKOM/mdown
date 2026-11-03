@@ -18,3 +18,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test
       - run: cargo build --release
+
+  # The compiled front end in dist/ is committed (so `cargo install` needs no Node). Rebuild it
+  # from frontend/src and fail if the result differs from what is checked in.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - name: dist/ must match frontend/src
+        run: |
+          if [ -n "$(git status --porcelain -- dist)" ]; then
+            git status --short -- dist
+            echo "dist/ is out of date: run 'npm run build' in frontend/ and commit the result."
+            exit 1
+          fi
