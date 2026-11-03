@@ -159,12 +159,13 @@ fn open_viewer(
 
     let doc = file.clone();
     let doc_base = base.clone();
+    let root = assets::asset_root(&base);
     let ipc = Ipc { id, file: file.clone(), base, proxy: proxy.clone() };
     let builder = WebViewBuilder::new_with_web_context(context);
     #[cfg(feature = "debug-hooks")]
     let builder = builder.with_initialization_script(TIMING_SCRIPT);
     let webview = builder
-        .with_custom_protocol("mdown".into(), move |_, req| assets::respond(&doc, &doc_base, req))
+        .with_custom_protocol("mdown".into(), move |_, req| assets::respond(&doc, &doc_base, &root, req))
         .with_ipc_handler(move |req| handle_ipc(&ipc, req.body()))
         // The page owns Ctrl/Cmd +, -, 0 and Ctrl+wheel so the level is a saved setting.
         .with_background_color(page_background(&prefs.theme, &window))
@@ -421,19 +422,29 @@ fn reveal(file: &Path) {
     }
 }
 
+/// Files a link may open in their default app. Anything else (programs, scripts, installers,
+/// documents that can carry macros) is shown in the file manager instead, so a click in a
+/// document never runs something.
+const OPENABLE: &[&str] = &[
+    "pdf", "txt", "log", "csv", "tsv", "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "glb", "gltf", "stl",
+];
+
 fn open_link(base: &Path, proxy: &EventLoopProxy<Ev>, href: &str) {
     if href.starts_with("http://") || href.starts_with("https://") || href.starts_with("mailto:") {
         let _ = open::that(href);
         return;
     }
-    // Relative link: a markdown file opens in its own window, anything else is left alone.
-    let rel = href.split('#').next().unwrap_or("");
-    if let Ok(target) = assets::resolve(base, rel) {
-        let md = target
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"));
-        if md {
-            let _ = proxy.send_event(Ev::Open(target));
-        }
+    // Relative link: a markdown file opens in its own window, a folder in the file manager.
+    let rel = href.split(['#', '?']).next().unwrap_or("");
+    let Some(target) = assets::resolve_link(base, rel).map(strip_verbatim) else { return };
+    let ext = target.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    if target.is_dir() {
+        let _ = open::that(&target);
+    } else if ext == "md" || ext == "markdown" {
+        let _ = proxy.send_event(Ev::Open(target));
+    } else if OPENABLE.contains(&ext.as_str()) {
+        let _ = open::that(&target);
+    } else {
+        reveal(&target);
     }
 }

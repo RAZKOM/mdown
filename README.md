@@ -28,7 +28,7 @@ mdown notes.md               # open a file
 mdown a.md b.md c.md         # one window each
 ```
 
-Links between Markdown files open in a new window, images and other files resolve relative to the document, and the view updates by itself whenever the file changes on disk. If you have unsaved edits when that happens, mdown asks before replacing them.
+Links between Markdown files open in a new window (`../` links included), links to folders, PDFs, images and text files open in their usual app, and links to anything else are shown in the file manager rather than run. Images and models resolve relative to the document, and the view updates by itself whenever the file changes on disk. If you have unsaved edits when that happens, mdown asks before replacing them.
 
 ### Open `.md` files from the file manager
 
@@ -100,7 +100,7 @@ Theme, text size and page width are saved for all windows. Change them from the 
 - **A blank window on Windows**: install the [WebView2 runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 - **Windows doesn't offer mdown as the default**: run `mdown install --default` again; the *Default apps* page lists apps registered by that command.
 - **macOS after upgrading**: run `mdown install` once more so `~/Applications/mdown.app` gets the new binary.
-- **Remote images** in a document load from the network like in any browser; local files are only served from the document's own folder.
+- **Remote images** in a document load from the network like in any browser; local images are only served from inside the document's git repository (never from `.git`), or from its own folder when it isn't in a repository.
 
 ## Build from source
 
