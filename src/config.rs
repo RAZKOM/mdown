@@ -24,5 +24,5 @@ pub fn save_size(w: f64, h: f64) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(path, serde_json::json!({ "w": w, "h": h }).to_string());
+    let _ = crate::fsutil::write_atomic(&path, serde_json::json!({ "w": w, "h": h }).to_string().as_bytes());
 }

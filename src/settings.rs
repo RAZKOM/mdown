@@ -81,7 +81,7 @@ pub fn set(key: &str, value: &Value) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
-    std::fs::write(path, text + "\n").map_err(|e| e.to_string())
+    super::fsutil::write_atomic(&path, (text + "\n").as_bytes()).map_err(|e| e.to_string())
 }
 
 pub fn set_theme(theme: &str) -> Result<(), String> {

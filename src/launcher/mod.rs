@@ -6,6 +6,8 @@ use std::io::{BufRead, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+#[path = "../fsutil.rs"]
+mod fsutil;
 #[path = "../settings.rs"]
 mod settings;
 
