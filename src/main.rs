@@ -4,6 +4,7 @@
 
 mod assets;
 mod config;
+mod fsutil;
 #[cfg(target_os = "macos")]
 mod menu;
 mod settings;
@@ -378,7 +379,7 @@ fn handle_ipc(ipc: &Ipc, body: &str) {
         }
         "save" => {
             let Some(text) = msg.text else { return };
-            let js = match std::fs::write(&ipc.file, text) {
+            let js = match fsutil::write_atomic(&ipc.file, text.as_bytes()) {
                 Ok(()) => "window.__saved && window.__saved()".to_string(),
                 Err(e) => {
                     let reason = serde_json::to_string(&e.to_string()).unwrap_or_else(|_| "\"error\"".into());
